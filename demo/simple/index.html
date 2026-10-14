@@ -10,19 +10,19 @@
 
       const worker = new BridgeWorker();
 
-      // 1) Callback style: per-item handler + completion Promise.
-      worker
-        .call(8, (item) => console.log("callback style:", item))
-        .then(() => console.log("callback style: done"));
+      // 1) Event style: items flow to `onmessage`, one per channel send.
+      worker.onmessage = (item) => console.log("event style:", item);
+      worker.onerror = (err) => console.error("event style:", err);
+      await worker.send(8);
 
-      // 2) Async-iterator style. Runs concurrently with (1) on the same
-      //    worker; per-stream `id`s keep the results separate.
-      (async () => {
-        for await (const item of worker.stream(10)) {
-          console.log("async style:", item);
-        }
-        console.log("async style: done");
-      })();
+      // 2) Callback style: per-item handler + completion Promise.
+      await worker.call(8, (item) => console.log("callback style:", item));
+
+      // 3) Async-iterator style.
+      for await (const item of worker.stream(8)) {
+        console.log("async style:", item);
+      }
+      console.log("all done");
     </script>
   </body>
 </html>

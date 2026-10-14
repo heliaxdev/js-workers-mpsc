@@ -1,7 +1,12 @@
 // Main-thread client. Pure JS by design: no WASM imports here.
 //
 //   const worker = new BridgeWorker();
+//
+//   worker.onmessage = (item) => console.log(item);   // event style
+//   await worker.send(10);
+//
 //   await worker.call(8, (item) => console.log(item));   // callback style
+//
 //   for await (const item of worker.stream(10)) { ... }  // async style
 
 export class BridgeWorker {
@@ -11,6 +16,11 @@ export class BridgeWorker {
   #seq = 0;
   #pending = new Map(); // id -> { onResult, resolve, reject }
 
+  // Event handlers for `send`-initiated streams. Items are the values
+  // delivered to the Rust channel, passed through as-is.
+  onmessage = null; // (item) => void
+  onerror = null; // (err) => void
+
   constructor() {
     this.#worker.onmessage = (e) => {
       const { id, type, item, error } = e.data;
@@ -19,7 +29,8 @@ export class BridgeWorker {
 
       switch (type) {
         case "RESULT":
-          ctx.onResult?.(item);
+          if (ctx.onResult) ctx.onResult(item);
+          else this.onmessage?.(item);
           break;
         case "DONE":
           this.#pending.delete(id);
@@ -27,13 +38,28 @@ export class BridgeWorker {
           break;
         case "ERROR":
           this.#pending.delete(id);
-          ctx.reject(new Error(error));
+          this.#fail(ctx, error);
           break;
       }
     };
   }
 
-  /** Raw API: per-item callback + completion Promise. */
+  #fail(ctx, error) {
+    const err = new Error(error);
+    ctx.reject(err);
+    if (!ctx.onResult) this.onerror?.(err);
+  }
+
+  /** Event API: items flow to `onmessage`; resolves on DONE, rejects on ERROR. */
+  send(payload) {
+    const id = this.#seq++;
+    return new Promise((resolve, reject) => {
+      this.#pending.set(id, { onResult: null, resolve, reject });
+      this.#worker.postMessage({ id, type: "START_WORK", payload });
+    });
+  }
+
+  /** Callback API: per-item `onResult` + completion Promise. */
   call(payload, onResult) {
     const id = this.#seq++;
     return new Promise((resolve, reject) => {

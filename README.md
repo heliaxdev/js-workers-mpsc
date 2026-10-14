@@ -12,8 +12,14 @@ import { BridgeWorker } from "./demo/simple/js/main.js";
 
 const worker = new BridgeWorker();
 
+// event style: items flow to onmessage
+worker.onmessage = (item) => console.log(item);
+await worker.send(10);
+
+// callback style
 await worker.call(10, (item) => console.log(item));
 
+// async-iterator style
 for await (const item of worker.stream(10)) {
   console.log(item);
 }

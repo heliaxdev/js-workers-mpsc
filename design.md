@@ -43,6 +43,15 @@ and in how the bridge worker initializes:
 Each request carries an `id` so multiple streams can run concurrently on one
 worker without their results interleaving.
 
+The main-thread `BridgeWorker` surfaces three styles over this protocol,
+routing per stream `id` (so they never double-deliver):
+
+- `worker.call(payload, onResult)` — per-item callback + completion Promise.
+- `for await (const item of worker.stream(payload))` — async iterator.
+- `worker.onmessage = (item) => …` + `worker.send(payload)` — event style;
+  `onmessage` receives each channel item directly, `onerror` fires on
+  stream failure, and `send` returns a Promise that settles with the stream.
+
 ## The channel
 
 `stream_channel` pairs an unbounded mpsc `Sender<T>` with a JS callback. The
