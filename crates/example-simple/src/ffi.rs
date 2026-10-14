@@ -18,7 +18,7 @@ use js_sys::Promise;
 use js_workers_mpsc::stream_channel;
 use serde::Serialize;
 use wasm_bindgen::prelude::*;
-use wasm_bindgen_futures::{spawn_local, JsFuture};
+use wasm_bindgen_futures::{JsFuture, spawn_local};
 
 /// A single Fibonacci number, serialized as `{ value: n }`.
 #[derive(Serialize)]

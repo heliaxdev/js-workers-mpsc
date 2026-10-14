@@ -12,4 +12,4 @@
 
 mod bridge;
 
-pub use bridge::{stream_channel, Sender, TrySendError};
+pub use bridge::{Sender, TrySendError, stream_channel};

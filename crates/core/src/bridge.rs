@@ -1,7 +1,7 @@
 //! Implementation of [`stream_channel`].
 
-use futures::channel::mpsc;
 use futures::StreamExt;
+use futures::channel::mpsc;
 use serde::Serialize;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::future_to_promise;
