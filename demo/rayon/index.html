@@ -15,7 +15,7 @@
       const worker = new BridgeWorker({
         wasmUrl: new URL("./pkg/js_workers_mpsc_example_rayon.js", import.meta.url)
           .href,
-        taskName: "runParallelTask",
+        taskName: "run_parallel_task",
         initThreadPool: true,
       });
 

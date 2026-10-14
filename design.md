@@ -79,7 +79,8 @@ with an `AbortError`, while streams already in flight drain normally.
 The JS glue in `crates/core/js/` ships with the core crate and is generic:
 it bridges any cdylib that exports a task function with the shape
 `run_task(payload, on_result) -> Promise` (JS export name configurable via
-`taskName`, default `runTask`). `on_result` is invoked once per item streamed
+`taskName`, default `run_task` — the Rust name as-is; wasm-bindgen no
+longer camelCases export names). `on_result` is invoked once per item streamed
 through the channel; the returned `Promise` settles with the task's
 `Result`: resolve forwards as `DONE`, reject (the Rust `Err`, serialized)
 forwards as `ERROR` for JS to catch and restart. A demo is then just an `index.html`

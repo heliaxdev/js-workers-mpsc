@@ -32,7 +32,7 @@ export class BridgeWorker {
 
   constructor({
     wasmUrl,
-    taskName = "runTask",
+    taskName = "run_task",
     initThreadPool = false,
     numThreads,
     workerUrl,

@@ -12,8 +12,9 @@
 //                            { id, type: "ERROR", error }
 //
 // The bridged cdylib must export a task function
-// `<taskName>(payload, onResult) -> Promise` (default name: `runTask`; Rust:
-// `run_task(payload, on_result) -> Promise`). `onResult` is invoked by Rust
+// `<taskName>(payload, onResult) -> Promise` (default name: `run_task` —
+// the Rust export name as-is; wasm-bindgen no longer camelCases export
+// names, explicit `js_name` still wins). `onResult` is invoked by Rust
 // for every item streamed through the mpsc channel; each call becomes one
 // RESULT message on the main thread. The task's Promise settles with the
 // task's Result: resolve becomes DONE, reject (the Rust error, serialized)
@@ -22,7 +23,7 @@
 // CANCEL marks a stream abandoned: its remaining items are dropped instead
 // of posted. The Rust compute itself keeps running to completion.
 
-let runTask = null;
+let taskFn = null;
 let initError = null;
 const cancelled = new Set();
 
@@ -36,14 +37,20 @@ self.onmessage = async (e) => {
   const { type } = e.data;
 
   if (type === "INIT") {
-    const { wasmUrl, taskName = "runTask", initThreadPool, numThreads } = e.data;
+    const { wasmUrl, taskName = "run_task", initThreadPool, numThreads } = e.data;
     try {
       const wasm = await import(wasmUrl);
       await wasm.default();
       if (initThreadPool) {
         await wasm.initThreadPool(numThreads ?? navigator.hardwareConcurrency);
       }
-      runTask = wasm[taskName];
+      const task = wasm[taskName];
+      // Fail INIT here rather than at first call: a wrong taskName should
+      // surface as a clean initError, not a TypeError per queued task.
+      if (typeof task !== "function") {
+        throw new Error(`task function "${taskName}" not found in module`);
+      }
+      taskFn = task;
       for (const msg of queued.splice(0)) {
         // A CANCEL may land while INIT is still pending; don't start those.
         if (cancelled.has(msg.id)) cancelled.delete(msg.id);
@@ -62,7 +69,7 @@ self.onmessage = async (e) => {
   }
 
   if (type === "START_WORK") {
-    if (runTask) handle(e.data);
+    if (taskFn) handle(e.data);
     else if (initError) fail(e.data);
     else queued.push(e.data);
   }
@@ -73,7 +80,7 @@ function handle({ id, payload }) {
   // A synchronous throw from the export must reach the main thread too; the
   // `.catch` below only sees promise rejections.
   try {
-    taskPromise = runTask(payload, (item) => {
+    taskPromise = taskFn(payload, (item) => {
       if (!cancelled.has(id)) self.postMessage({ id, type: "RESULT", item });
     });
   } catch (error) {
