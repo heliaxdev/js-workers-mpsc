@@ -14,9 +14,7 @@
 //   for await (const item of worker.stream(10)) { ... }  // async style
 
 export class BridgeWorker {
-  #worker = new Worker(new URL("./bridge.worker.js", import.meta.url), {
-    type: "module",
-  });
+  #worker;
   #seq = 0;
   #pending = new Map(); // id -> { onResult, resolve, reject }
 
@@ -30,7 +28,16 @@ export class BridgeWorker {
     taskName = "runTask",
     initThreadPool = false,
     numThreads,
+    workerUrl,
   }) {
+    this.#worker = new Worker(
+      // Defaults to bridge.worker.js next to this file; overridable for
+      // setups (bundlers, alternate layouts) where the two can't be served
+      // side by side.
+      workerUrl ?? new URL("./bridge.worker.js", import.meta.url),
+      { type: "module" },
+    );
+
     this.#worker.onmessage = (e) => {
       const { id, type, item, error } = e.data;
       const ctx = this.#pending.get(id);
@@ -67,7 +74,10 @@ export class BridgeWorker {
     if (!ctx.onResult) this.onerror?.(err);
   }
 
-  /** Event API: items flow to `onmessage`; resolves on DONE, rejects on ERROR. */
+  /**
+   * Event API: items flow to `onmessage`; resolves on DONE, rejects on ERROR.
+   * Concurrent `send`s interleave their items on the one `onmessage`.
+   */
   send(payload) {
     const id = this.#seq++;
     return new Promise((resolve, reject) => {
@@ -119,6 +129,10 @@ export class BridgeWorker {
 
   terminate() {
     this.#worker.terminate();
+    // Nothing will ever settle these streams now; reject rather than hang.
+    for (const { reject } of this.#pending.values()) {
+      reject(new DOMException("worker terminated", "AbortError"));
+    }
     this.#pending.clear();
   }
 }

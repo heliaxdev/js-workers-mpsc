@@ -48,6 +48,8 @@ in the options they pass to `BridgeWorker`:
 `INIT` is posted by the `BridgeWorker` constructor; the worker dynamically
 imports `wasmUrl`, instantiates the module once, optionally spins up the
 Rayon pool, and queues any `START_WORK` that arrives before init finishes.
+If init fails, every queued (and later) `START_WORK` gets an `ERROR`
+with the init failure.
 
 Each request carries an `id` so multiple streams can run concurrently on one
 worker without their results interleaving.
@@ -70,7 +72,10 @@ it bridges any cdylib that exports a task function with the shape
 through the channel; the returned `Promise` resolves when all senders drop,
 which the worker forwards as `DONE`. A demo is then just an `index.html`
 that constructs `BridgeWorker` with the `wasmUrl` of its `pkg/` plus any
-options — there is no per-demo JS glue to write or keep in sync.
+options — there is no per-demo JS glue to write or keep in sync. The worker
+script itself defaults to `bridge.worker.js` next to `main.js`; `workerUrl`
+overrides it for setups where the two files can't be served side by side
+(bundlers, alternate layouts).
 
 ## The channel
 
@@ -127,3 +132,18 @@ The rayon demo adds `wasm-bindgen-rayon`. Three things change:
 The pool tasks hold only cloned senders, never the receiver; the drain loop
 stays on the bridge worker's thread. `initThreadPool` runs exactly once,
 before the first task.
+
+## Known limitations
+
+- **No stream cancellation.** Breaking out of a `stream()` loop early leaves
+  the Rust compute running and items piling up in the generator's queue.
+  This needs a `CANCEL` message in the protocol, per-`id` sender tracking in
+  the worker, and suppression of the post-cancel `DONE`/`ERROR`.
+- **No backpressure.** The mpsc is unbounded and the main-thread queue is
+  unbounded; a fast producer outruns a slow consumer without limit.
+- **Worker panics kill the stream silently.** Under `panic = "abort"` (the
+  common wasm config), a panic inside a `spawn_local`'d future aborts the
+  worker before any `ERROR` can be posted, and awaiting callers hang. The
+  examples avoid this (the Fibonacci exports clamp their input), but the
+  core doesn't guarantee it; wrap compute in `catch_unwind` at the FFI
+  boundary.

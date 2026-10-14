@@ -8,7 +8,8 @@
 //! throws or serialization fails.
 //!
 //! This is an `rlib` with no `#[wasm_bindgen]` exports. A downstream `cdylib`
-//! owns the exports the worker loads — see `crates/example` for the reference.
+//! owns the exports the worker loads — see `crates/example-simple` and
+//! `crates/example-rayon` for references.
 
 mod bridge;
 

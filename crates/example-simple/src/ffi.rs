@@ -26,7 +26,8 @@ pub struct Fibonacci {
     value: u64,
 }
 
-/// Stream the first `payload` Fibonacci numbers to `on_result`.
+/// Stream the first `payload` Fibonacci numbers to `on_result`, clamped to 92
+/// (fib(94) overflows u64).
 ///
 /// `payload` is read as a number via `JsValue::as_f64` and defaults to 10 for
 /// non-numbers. Each value is sent as a [`Fibonacci`]; the `JsFuture` yield
@@ -37,7 +38,10 @@ pub fn run_task(payload: JsValue, on_result: js_sys::Function) -> Promise {
     let (sender, promise) = stream_channel::<Fibonacci>(&on_result);
 
     spawn_local(async move {
-        let n = payload.as_f64().unwrap_or(10.0) as u32;
+        // Clamped to 92: the loop's final `(a, b) = (b, a + b)` computes
+        // fib(n + 1), and fib(94) overflows u64. A panic here would abort the
+        // worker before the stream could report an error.
+        let n = (payload.as_f64().unwrap_or(10.0) as u32).min(92);
         let (mut a, mut b) = (0u64, 1u64);
 
         for _ in 0..n {

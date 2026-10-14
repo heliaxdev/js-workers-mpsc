@@ -28,8 +28,8 @@ fn fib(n: u32) -> u64 {
     a
 }
 
-/// Stream the first `payload` Fibonacci numbers, computed across the Rayon
-/// pool.
+/// Stream the first `payload` Fibonacci numbers (clamped to 92; fib(94)
+/// overflows u64), computed across the Rayon pool.
 ///
 /// `payload` is read as a number via `JsValue::as_f64` and defaults to 10 for
 /// non-numbers. Each index is computed by its own pool task; results stream
@@ -38,7 +38,9 @@ fn fib(n: u32) -> u64 {
 /// loop wakes up on its own.
 #[wasm_bindgen]
 pub fn run_parallel_task(payload: JsValue, on_result: js_sys::Function) -> Promise {
-    let n = payload.as_f64().unwrap_or(10.0) as u32;
+    // Clamped to 92: fib(94) overflows u64, and a panic in a pool task would
+    // abort the worker before the stream could report an error.
+    let n = (payload.as_f64().unwrap_or(10.0) as u32).min(92);
 
     let (sender, promise) = stream_channel::<Fibonacci>(&on_result);
 

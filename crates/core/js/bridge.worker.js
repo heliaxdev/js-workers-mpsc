@@ -54,11 +54,18 @@ self.onmessage = async (e) => {
 };
 
 function handle({ id, payload }) {
-  Promise.resolve(
-    runTask(payload, (item) => {
+  let taskPromise;
+  // A synchronous throw from the export must reach the main thread too; the
+  // `.catch` below only sees promise rejections.
+  try {
+    taskPromise = runTask(payload, (item) => {
       self.postMessage({ id, type: "RESULT", item });
-    }),
-  )
+    });
+  } catch (error) {
+    fail({ id }, String(error?.message ?? error));
+    return;
+  }
+  Promise.resolve(taskPromise)
     .then(() => self.postMessage({ id, type: "DONE" }))
     .catch((error) => fail({ id }, String(error?.message ?? error)));
 }
