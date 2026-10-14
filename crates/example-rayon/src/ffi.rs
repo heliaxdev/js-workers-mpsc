@@ -1,16 +1,15 @@
 //! `#[wasm_bindgen]` exports loaded by the bridge worker.
 //!
-//! The shape matches the simple example. The difference is that the channel
-//! is fed from inside a [`rayon::scope`]: each pooled task computes one item
-//! and pushes it through its cloned [`Sender`], so results arrive in pool
+//! The shape matches the simple example. The difference is that the compute
+//! runs inside a [`rayon::scope`]: each pooled task computes one item and
+//! pushes it through its cloned [`Sender`], so results arrive in pool
 //! completion order rather than index order.
 
 use js_sys::Promise;
-use js_workers_mpsc::{Sender, stream_channel};
+use js_workers_mpsc::{Sender, dispatch};
 use rayon::scope;
 use serde::Serialize;
 use wasm_bindgen::prelude::*;
-use wasm_bindgen_futures::spawn_local;
 
 /// One streamed result: the input index and its Fibonacci number,
 /// serialized as `{ input: i, value: fib(i) }`.
@@ -38,16 +37,14 @@ fn fib(n: u32) -> u64 {
 /// loop wakes up on its own.
 #[wasm_bindgen]
 pub fn run_parallel_task(payload: JsValue, on_result: js_sys::Function) -> Promise {
-    // Clamped to 92: fib(94) overflows u64, and a panic in a pool task would
-    // abort the worker before the stream could report an error.
+    // Clamped to 92: fib(94) overflows u64, and a panic in a pool task
+    // would abort the worker before the stream could report an error.
     let n = (payload.as_f64().unwrap_or(10.0) as u32).min(92);
 
-    let (sender, promise) = stream_channel::<Fibonacci>(&on_result);
-
-    spawn_local(async move {
+    dispatch(&on_result, async move |sender: Sender<Fibonacci>| {
         scope(|s| {
             for i in 0..n {
-                let sender = Sender::clone(&sender);
+                let sender = sender.clone();
                 s.spawn(move |_| {
                     let _ = sender.unbounded_send(Fibonacci {
                         input: i,
@@ -57,8 +54,7 @@ pub fn run_parallel_task(payload: JsValue, on_result: js_sys::Function) -> Promi
             }
             // `scope` joins: all tasks have run and their senders dropped.
         });
-        // Last sender drops here -> channel closes -> `promise` resolves.
-    });
-
-    promise
+        // Last sender drops here -> channel closes -> promise resolves.
+        Ok::<(), ()>(())
+    })
 }

@@ -35,15 +35,14 @@ drain; `worker.terminate()` kills the worker outright.
 The Rust side creates a channel and sends results as they're computed:
 
 ```rust
-use js_workers_mpsc::stream_channel;
+use js_workers_mpsc::dispatch;
 
 #[wasm_bindgen]
 pub fn run_task(payload: JsValue, on_result: js_sys::Function) -> js_sys::Promise {
-    let (sender, promise) = stream_channel::<MyItem>(&on_result);
-    wasm_bindgen_futures::spawn_local(async move {
-        sender.unbounded_send(MyItem { /* ... */ });
-    });
-    promise
+    dispatch(&on_result, async move |sender| {
+        sender.unbounded_send(MyItem { /* ... */ }).map_err(|_| ())?;
+        Ok::<(), ()>(())
+    })
 }
 ```
 

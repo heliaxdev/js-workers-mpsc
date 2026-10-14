@@ -80,8 +80,9 @@ The JS glue in `crates/core/js/` ships with the core crate and is generic:
 it bridges any cdylib that exports a task function with the shape
 `run_task(payload, on_result) -> Promise` (JS export name configurable via
 `taskName`, default `runTask`). `on_result` is invoked once per item streamed
-through the channel; the returned `Promise` resolves when all senders drop,
-which the worker forwards as `DONE`. A demo is then just an `index.html`
+through the channel; the returned `Promise` settles with the task's
+`Result`: resolve forwards as `DONE`, reject (the Rust `Err`, serialized)
+forwards as `ERROR` for JS to catch and restart. A demo is then just an `index.html`
 that constructs `BridgeWorker` with the `wasmUrl` of its `pkg/` plus any
 options — there is no per-demo JS glue to write or keep in sync. The worker
 script itself defaults to `bridge.worker.js` next to `main.js`; `workerUrl`
@@ -90,16 +91,25 @@ overrides it for setups where the two files can't be served side by side
 
 ## The channel
 
-`stream_channel` pairs an unbounded mpsc `Sender<T>` with a JS callback. The
-receiver is drained on the worker's thread by `wasm-bindgen-futures`, so the
-JS event loop is never blocked. Each item is serialized with
-`serde-wasm-bindgen` and passed to the callback. When all senders drop, the
-returned `Promise` resolves.
+`dispatch` runs a factory future that streams items to a JS callback. The
+factory receives the sending end of an unbounded mpsc channel and returns
+`Result<Out, E>`; each item sent is serialized with `serde-wasm-bindgen`
+and passed to `on_event`. The drain loop and the factory run concurrently
+on the worker's thread via `wasm-bindgen-futures`, so the JS event loop is
+never blocked. The factory's `Result` becomes the promise outcome: `Ok`
+resolves, `Err` rejects (serialized), which is what JS catches to restart
+the process.
 
-`stream_channel` is generic, so it can't be exported through `wasm-bindgen`
+When `on_event` throws (or an item fails to serialize), the receiver drops
+and the channel closes. The factory learns this through `send`: subsequent
+sends error, and the factory propagates that as its `Err`. The factory's
+`Result` is the only source of "why this stopped" — the drain's own error
+is lost if the factory ignores failed sends.
+
+`dispatch` is generic, so it can't be exported through `wasm-bindgen`
 directly. Each concrete task needs its own `#[wasm_bindgen]` export that
-fixes the type parameter and drives the channel. Both example crates are
-such exports.
+fixes the type parameters and hands the channel to the factory. Both
+example crates are such exports.
 
 The sender is `Send + Sync + Clone`, which is what makes the Rayon variant
 work with no changes to the core: the export clones the sender into each
@@ -153,9 +163,8 @@ before the first task.
   closable sender or shared flag).
 - **No backpressure.** The mpsc is unbounded and the main-thread queue is
   unbounded; a fast producer outruns a slow consumer without limit.
-- **Worker panics kill the stream silently.** Under `panic = "abort"` (the
-  common wasm config), a panic inside a `spawn_local`'d future aborts the
-  worker before any `ERROR` can be posted, and awaiting callers hang. The
-  examples avoid this (the Fibonacci exports clamp their input), but the
-  core doesn't guarantee it; wrap compute in `catch_unwind` at the FFI
-  boundary.
+- **Panics are not handled.** A panic in factory code (or in a pool task)
+  aborts the worker before any `ERROR` can be posted; awaiting callers
+  hang. There is no detection or recovery — `catch_unwind` doesn't work
+  under `panic = "abort"`. The user is responsible for not panicking;
+  make fallible compute return `Result` instead.

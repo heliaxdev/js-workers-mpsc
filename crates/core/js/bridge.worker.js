@@ -15,8 +15,9 @@
 // `<taskName>(payload, onResult) -> Promise` (default name: `runTask`; Rust:
 // `run_task(payload, on_result) -> Promise`). `onResult` is invoked by Rust
 // for every item streamed through the mpsc channel; each call becomes one
-// RESULT message on the main thread. The task's Promise resolves when all
-// Rust senders drop, which becomes DONE.
+// RESULT message on the main thread. The task's Promise settles with the
+// task's Result: resolve becomes DONE, reject (the Rust error, serialized)
+// becomes ERROR.
 //
 // CANCEL marks a stream abandoned: its remaining items are dropped instead
 // of posted. The Rust compute itself keeps running to completion.
