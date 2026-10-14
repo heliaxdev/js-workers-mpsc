@@ -6,6 +6,7 @@
 // Protocol (main -> worker): { type: "INIT", wasmUrl, taskName,
 //                              initThreadPool, numThreads }
 //                            { id, type: "START_WORK", payload }
+//                            { id, type: "CANCEL" }
 // Protocol (worker -> main): { id, type: "RESULT", item }
 //                            { id, type: "DONE" }
 //                            { id, type: "ERROR", error }
@@ -16,9 +17,13 @@
 // for every item streamed through the mpsc channel; each call becomes one
 // RESULT message on the main thread. The task's Promise resolves when all
 // Rust senders drop, which becomes DONE.
+//
+// CANCEL marks a stream abandoned: its remaining items are dropped instead
+// of posted. The Rust compute itself keeps running to completion.
 
 let runTask = null;
 let initError = null;
+const cancelled = new Set();
 
 // The port delivers INIT before any START_WORK, but delivery order is not
 // completion order: INIT suspends at its first `await`, and the event loop
@@ -38,11 +43,20 @@ self.onmessage = async (e) => {
         await wasm.initThreadPool(numThreads ?? navigator.hardwareConcurrency);
       }
       runTask = wasm[taskName];
-      queued.splice(0).forEach(handle);
+      for (const msg of queued.splice(0)) {
+        // A CANCEL may land while INIT is still pending; don't start those.
+        if (cancelled.has(msg.id)) cancelled.delete(msg.id);
+        else handle(msg);
+      }
     } catch (error) {
       initError = String(error?.message ?? error);
       queued.splice(0).forEach((msg) => fail(msg));
     }
+    return;
+  }
+
+  if (type === "CANCEL") {
+    cancelled.add(e.data.id);
     return;
   }
 
@@ -59,15 +73,21 @@ function handle({ id, payload }) {
   // `.catch` below only sees promise rejections.
   try {
     taskPromise = runTask(payload, (item) => {
-      self.postMessage({ id, type: "RESULT", item });
+      if (!cancelled.has(id)) self.postMessage({ id, type: "RESULT", item });
     });
   } catch (error) {
     fail({ id }, String(error?.message ?? error));
     return;
   }
   Promise.resolve(taskPromise)
-    .then(() => self.postMessage({ id, type: "DONE" }))
-    .catch((error) => fail({ id }, String(error?.message ?? error)));
+    .then(() => {
+      cancelled.delete(id);
+      self.postMessage({ id, type: "DONE" });
+    })
+    .catch((error) => {
+      cancelled.delete(id);
+      fail({ id }, String(error?.message ?? error));
+    });
 }
 
 function fail({ id }, error = initError) {

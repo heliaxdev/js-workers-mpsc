@@ -28,6 +28,10 @@ for await (const item of worker.stream(10)) {
 }
 ```
 
+Breaking out of a `stream()` loop early abandons that stream; the worker
+stays usable. `worker.close()` rejects new work while in-flight streams
+drain; `worker.terminate()` kills the worker outright.
+
 The Rust side creates a channel and sends results as they're computed:
 
 ```rust

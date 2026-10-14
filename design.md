@@ -41,6 +41,7 @@ in the options they pass to `BridgeWorker`:
 | --- | --- | --- |
 | main → worker | `{ type: "INIT", wasmUrl, taskName, initThreadPool, numThreads }` | parameterize the worker: which WASM module, which task export, optional Rayon pool init |
 | main → worker | `{ id, type: "START_WORK", payload }` | run a task |
+| main → worker | `{ id, type: "CANCEL" }` | abandon a stream: the worker drops its remaining items (the Rust compute still runs) |
 | worker → main | `{ id, type: "RESULT", item }` | one streamed item |
 | worker → main | `{ id, type: "DONE" }` | stream complete |
 | worker → main | `{ id, type: "ERROR", error }` | stream failed |
@@ -62,6 +63,16 @@ routing per stream `id` (so they never double-deliver):
 - `worker.onmessage = (item) => …` + `worker.send(payload)` — event style;
   `onmessage` receives each channel item directly, `onerror` fires on
   stream failure, and `send` returns a Promise that settles with the stream.
+
+Breaking out of a `stream()` loop abandons that stream: the main thread
+deletes its routing entry and posts `CANCEL`, so remaining items are dropped
+at the worker instead of delivered. The Rust compute still runs to
+completion — the sender is owned by the spawned future — only its
+forwarding stops.
+
+`worker.close()` is the soft stop: new `send`/`call`/`stream` calls reject
+with an `AbortError`, while streams already in flight drain normally.
+`worker.terminate()` is the hard kill and rejects in-flight streams.
 
 ### The bridge contract
 
@@ -135,10 +146,11 @@ before the first task.
 
 ## Known limitations
 
-- **No stream cancellation.** Breaking out of a `stream()` loop early leaves
-  the Rust compute running and items piling up in the generator's queue.
-  This needs a `CANCEL` message in the protocol, per-`id` sender tracking in
-  the worker, and suppression of the post-cancel `DONE`/`ERROR`.
+- **Abandoned streams keep computing.** Breaking out of a `stream()` loop or
+  closing the worker stops forwarding results, but the Rust future runs to
+  completion: the sender is owned by the spawned future and can't be dropped
+  from JS. True mid-compute cancellation needs Rust-side cooperation (a
+  closable sender or shared flag).
 - **No backpressure.** The mpsc is unbounded and the main-thread queue is
   unbounded; a fast producer outruns a slow consumer without limit.
 - **Worker panics kill the stream silently.** Under `panic = "abort"` (the
