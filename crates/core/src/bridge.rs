@@ -14,12 +14,10 @@ pub use futures::channel::mpsc::{SendError, UnboundedSender as Sender};
 /// `factory` receives the sending end of an unbounded mpsc channel and
 /// returns `Result<Out, E>` once its compute is done. Each item sent is
 /// serialized with `serde-wasm-bindgen` and passed to `on_event`. The
-/// factory's `Result` becomes the promise's outcome: `Ok` resolves
-/// (serialized), `Err` rejects (serialized).
+/// factory's `Result` becomes the promise's outcome: `Ok` resolves,
+/// `Err` rejects.
 ///
-/// The drain loop and the factory run concurrently on the worker's thread
-/// via `wasm-bindgen-futures`, so the JS event loop is never blocked. When
-/// `on_event` throws (or an item fails to serialize), the receiver drops
+/// When `on_event` throws (or an item fails to serialize), the receiver drops
 /// and the channel closes. The factory learns this through `send`, whose
 /// subsequent calls error out. The factory should propagate that as its
 /// `Err`. Panics in the factory abort the worker, so panicking under
