@@ -1,6 +1,10 @@
-// Main-thread client. Pure JS by design: no WASM imports here.
+// Main-thread client. Pure JS by design: no WASM imports here. The bridge
+// worker glue this class pairs with lives next to it (bridge.worker.js) and
+// is generic: point it at any cdylib built on this crate.
 //
-//   const worker = new BridgeWorker();
+//   const worker = new BridgeWorker({
+//     wasmUrl: new URL("./pkg/my_crate.js", import.meta.url).href,
+//   });
 //
 //   worker.onmessage = (item) => console.log(item);   // event style
 //   await worker.send(10);
@@ -21,7 +25,12 @@ export class BridgeWorker {
   onmessage = null; // (item) => void
   onerror = null; // (err) => void
 
-  constructor() {
+  constructor({
+    wasmUrl,
+    taskName = "runTask",
+    initThreadPool = false,
+    numThreads,
+  }) {
     this.#worker.onmessage = (e) => {
       const { id, type, item, error } = e.data;
       const ctx = this.#pending.get(id);
@@ -42,6 +51,14 @@ export class BridgeWorker {
           break;
       }
     };
+
+    this.#worker.postMessage({
+      type: "INIT",
+      wasmUrl,
+      taskName,
+      initThreadPool,
+      numThreads,
+    });
   }
 
   #fail(ctx, error) {

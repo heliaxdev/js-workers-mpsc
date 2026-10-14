@@ -7,12 +7,17 @@
   <body>
     <!--
       NOTE: must be served with COOP/COEP headers — the rayon pool uses
-      SharedArrayBuffer. `python3 serve.py` at the repo root sets them.
+      SharedArrayBuffer. `just serve` (or `python3 serve.py`) sets them.
     -->
     <script type="module">
-      import { BridgeWorker } from "./js/main.js";
+      import { BridgeWorker } from "../../crates/core/js/main.js";
 
-      const worker = new BridgeWorker();
+      const worker = new BridgeWorker({
+        wasmUrl: new URL("./pkg/js_workers_mpsc_example_rayon.js", import.meta.url)
+          .href,
+        taskName: "runParallelTask",
+        initThreadPool: true,
+      });
 
       // 1) Event style: items flow to `onmessage`, one per channel send.
       //    Results arrive in pool completion order, not index order.

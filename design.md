@@ -4,14 +4,16 @@ Three layers, one direction of data flow:
 
 ```
 ┌──────────────────────────────────┐
-│  Main thread (demo/*/js/main.js) │  pure JS, no WASM imports
+│  Main thread                     │  pure JS, no WASM imports
+│  (crates/core/js/main.js)        │
 │  BridgeWorker                    │
 └──────────┬───────────▲───────────┘
            │ postMessage { id, type, payload }
            ▼           │ RESULT / DONE / ERROR
 ┌──────────────────────────────────┐
 │  Bridge Worker                   │  WASM module instantiated exactly once
-│  (demo/*/js/bridge.worker.js)    │
+│  (crates/core/js/                │  generic: parameterized by an INIT
+│   bridge.worker.js)              │  message, shared by all demos
 └──────────┬───────────────────────┘
            │ run_task / run_parallel_task(payload, on_result)
 ┌──────────▼───────────────────────┐
@@ -20,13 +22,15 @@ Three layers, one direction of data flow:
 └──────────────────────────────────┘
 ```
 
-Two demos share this shape. They differ only in what the Rust compute does
-and in how the bridge worker initializes:
+Two demos share this shape. The bridge glue is generic and lives in
+`crates/core/js/`; the demos differ only in what the Rust compute does and
+in the options they pass to `BridgeWorker`:
 
 | | `demo/simple` | `demo/rayon` |
 | --- | --- | --- |
 | Crate | `crates/example-simple` | `crates/example-rayon` |
 | Export | `run_task` | `run_parallel_task` + `init_thread_pool` |
+| `BridgeWorker` options | (defaults) | `taskName: "runParallelTask"`, `initThreadPool: true` |
 | Compute | on the worker's own thread | across a Rayon thread pool |
 | Build | stable or nightly | nightly + atomics (`.cargo/config.toml` in the crate) |
 | Serving | any static server | requires COOP/COEP headers (SharedArrayBuffer) |
@@ -35,10 +39,15 @@ and in how the bridge worker initializes:
 
 | Direction | Message | Meaning |
 | --- | --- | --- |
+| main → worker | `{ type: "INIT", wasmUrl, taskName, initThreadPool, numThreads }` | parameterize the worker: which WASM module, which task export, optional Rayon pool init |
 | main → worker | `{ id, type: "START_WORK", payload }` | run a task |
 | worker → main | `{ id, type: "RESULT", item }` | one streamed item |
 | worker → main | `{ id, type: "DONE" }` | stream complete |
 | worker → main | `{ id, type: "ERROR", error }` | stream failed |
+
+`INIT` is posted by the `BridgeWorker` constructor; the worker dynamically
+imports `wasmUrl`, instantiates the module once, optionally spins up the
+Rayon pool, and queues any `START_WORK` that arrives before init finishes.
 
 Each request carries an `id` so multiple streams can run concurrently on one
 worker without their results interleaving.
@@ -51,6 +60,17 @@ routing per stream `id` (so they never double-deliver):
 - `worker.onmessage = (item) => …` + `worker.send(payload)` — event style;
   `onmessage` receives each channel item directly, `onerror` fires on
   stream failure, and `send` returns a Promise that settles with the stream.
+
+### The bridge contract
+
+The JS glue in `crates/core/js/` ships with the core crate and is generic:
+it bridges any cdylib that exports a task function with the shape
+`run_task(payload, on_result) -> Promise` (JS export name configurable via
+`taskName`, default `runTask`). `on_result` is invoked once per item streamed
+through the channel; the returned `Promise` resolves when all senders drop,
+which the worker forwards as `DONE`. A demo is then just an `index.html`
+that constructs `BridgeWorker` with the `wasmUrl` of its `pkg/` plus any
+options — there is no per-demo JS glue to write or keep in sync.
 
 ## The channel
 
@@ -88,9 +108,10 @@ without COOP/COEP headers.
 
 The rayon demo adds `wasm-bindgen-rayon`. Three things change:
 
-- The bridge worker calls `initThreadPool(navigator.hardwareConcurrency)`
-  once, right after module init. Pool workers re-import the same WASM module
-  and share its linear memory (`SharedArrayBuffer`).
+- The bridge worker calls `initThreadPool` once, right after module init,
+  when constructed with `initThreadPool: true` (thread count defaults to
+  `navigator.hardwareConcurrency`). Pool workers re-import the same WASM
+  module and share its linear memory (`SharedArrayBuffer`).
 - The build needs nightly, `build-std`, and atomics link flags. These live in
   `crates/example-rayon/.cargo/config.toml` so the simple crate is unaffected;
   the rayon crate must be built from its own directory so cargo picks that

@@ -6,9 +6,12 @@
   </head>
   <body>
     <script type="module">
-      import { BridgeWorker } from "./js/main.js";
+      import { BridgeWorker } from "../../crates/core/js/main.js";
 
-      const worker = new BridgeWorker();
+      const worker = new BridgeWorker({
+        wasmUrl: new URL("./pkg/js_workers_mpsc_example.js", import.meta.url)
+          .href,
+      });
 
       // 1) Event style: items flow to `onmessage`, one per channel send.
       worker.onmessage = (item) => console.log("event style:", item);

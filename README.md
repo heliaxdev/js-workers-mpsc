@@ -5,12 +5,15 @@ channel, without blocking the page.
 
 ## Usage
 
-Run some Rust in a worker and get results streamed back:
+The bridge glue is generic and ships with the core crate. Point a
+`BridgeWorker` at any cdylib built on this crate:
 
 ```js
-import { BridgeWorker } from "./demo/simple/js/main.js";
+import { BridgeWorker } from "./crates/core/js/main.js";
 
-const worker = new BridgeWorker();
+const worker = new BridgeWorker({
+  wasmUrl: new URL("./demo/simple/pkg/js_workers_mpsc_example.js", import.meta.url).href,
+});
 
 // event style: items flow to onmessage
 worker.onmessage = (item) => console.log(item);
@@ -52,9 +55,9 @@ just build-rayon  && just serve   # http://localhost:8000/demo/rayon/
 
 ## Layout
 
-- `crates/core` — `stream_channel`, the channel primitive.
-- `crates/example-simple` — demo: `run_task` (Fibonacci).
-- `crates/example-rayon` — demo: `run_parallel_task` (parallel Fibonacci, Rayon pool).
-- `demo/` — the JS workers, main thread clients, and html.
+- `crates/core` — `stream_channel` plus the generic JS bridge (`js/`).
+- `crates/example-simple` — demo crate: `run_task` (Fibonacci).
+- `crates/example-rayon` — demo crate: `run_parallel_task` (parallel Fibonacci, Rayon pool).
+- `demo/` — html pages and built wasm (`pkg/`) for each demo.
 
 See [design.md](design.md) for the architecture and wire protocol.
