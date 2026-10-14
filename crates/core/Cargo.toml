@@ -1,0 +1,15 @@
+[package]
+name = "js-workers-mpsc"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["rlib"]
+
+[dependencies]
+futures = "0.3"
+js-sys = "0.3"
+serde = { version = "1", features = ["derive"] }
+serde-wasm-bindgen = "0.6"
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"

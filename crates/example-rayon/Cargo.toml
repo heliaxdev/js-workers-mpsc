@@ -1,0 +1,17 @@
+[package]
+name = "js-workers-mpsc-example-rayon"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+js-workers-mpsc = { path = "../core" }
+js-sys = "0.3"
+rayon = "1"
+serde = { version = "1", features = ["derive"] }
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+wasm-bindgen-rayon = "1.3"

@@ -1,0 +1,28 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>js-workers-mpsc demo</title>
+  </head>
+  <body>
+    <script type="module">
+      import { BridgeWorker } from "./js/main.js";
+
+      const worker = new BridgeWorker();
+
+      // 1) Callback style: per-item handler + completion Promise.
+      worker
+        .call(8, (item) => console.log("callback style:", item))
+        .then(() => console.log("callback style: done"));
+
+      // 2) Async-iterator style. Runs concurrently with (1) on the same
+      //    worker; per-stream `id`s keep the results separate.
+      (async () => {
+        for await (const item of worker.stream(10)) {
+          console.log("async style:", item);
+        }
+        console.log("async style: done");
+      })();
+    </script>
+  </body>
+</html>
